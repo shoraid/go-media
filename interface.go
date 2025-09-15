@@ -32,5 +32,5 @@ type StorageDriver interface {
 	// Put uploads a file (provided as io.Reader) to the given key in storage.
 	// Returns the resulting file URL (public or internal, depending on implementation).
 	// Usage: Call this to save a new file or overwrite an existing one.
-	Put(ctx context.Context, file io.Reader, key string) (url string, err error)
+	Put(ctx context.Context, key string, file io.Reader) (url string, err error)
 }

@@ -70,7 +70,7 @@ func (m *MockMediaManager) Missing(ctx context.Context, key string) (bool, error
 	return args.Bool(0), args.Error(1)
 }
 
-func (m *MockMediaManager) Put(ctx context.Context, file io.Reader, key string) (string, error) {
+func (m *MockMediaManager) Put(ctx context.Context, key string, file io.Reader) (string, error) {
 	args := m.Called(ctx, file, key)
 	return args.String(0), args.Error(1)
 }

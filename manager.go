@@ -3,8 +3,10 @@ package gomedia
 import (
 	"context"
 	"io"
+	"sync"
 	"time"
 
+	"github.com/rs/zerolog/log"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -43,36 +45,53 @@ type MediaManager interface {
 	Missing(ctx context.Context, key string) (bool, error)
 
 	// Put uploads a file to the storage with the given key and returns its URL.
-	Put(ctx context.Context, file io.Reader, key string) (string, error)
+	Put(ctx context.Context, key string, file io.Reader) (string, error)
 }
 
 // mediaManagerImpl is the concrete implementation of MediaManager.
 // It delegates calls to the defaultStorage or a selected storage from storageMap.
 type mediaManagerImpl struct {
-	storageMap     map[string]MediaManager // all available storages by alias
-	defaultStorage MediaManager            // the currently selected storage
+	mu             sync.RWMutex
+	storageMap     map[string]StorageDriver // all available storages by alias
+	defaultStorage StorageDriver            // the currently selected storage
 }
 
 // NewManager creates a new MediaManager with a default storage alias.
 // Returns an error if the alias does not exist in the provided storage map.
-func NewManager(defaultStorageAlias string, storage map[string]MediaManager) (MediaManager, error) {
+func NewMediaManager(defaultStorageAlias string, storage map[string]StorageDriver) (MediaManager, error) {
 	defaultStorage, exists := storage[defaultStorageAlias]
 	if !exists {
+		log.
+			Warn().
+			Str("defaultStorageAlias", defaultStorageAlias).
+			Msg("media: storage alias not found, returning manager with nil default storage")
+
 		return nil, ErrInvalidDefaultStorage
 	}
 
 	return &mediaManagerImpl{
-		storage,
-		defaultStorage,
+		storageMap:     storage,
+		defaultStorage: defaultStorage,
 	}, nil
 }
 
 // Storage returns a new MediaManager using the given alias as its default storage.
 // If alias is not found, defaultStorage will be nil (be careful when calling methods).
 func (m *mediaManagerImpl) Storage(alias string) MediaManager {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	defaultStorage, exists := m.storageMap[alias]
+	if !exists {
+		log.
+			Warn().
+			Str("alias", alias).
+			Msg("media: storage alias not found, returning manager with nil default storage")
+	}
+
 	return &mediaManagerImpl{
 		storageMap:     m.storageMap,
-		defaultStorage: m.storageMap[alias],
+		defaultStorage: defaultStorage,
 	}
 }
 
@@ -87,7 +106,6 @@ func (m *mediaManagerImpl) DeleteMany(ctx context.Context, keys ...string) error
 	g, ctx := errgroup.WithContext(ctx)
 
 	for _, key := range keys {
-		key := key // avoid closure capture bug
 		g.Go(func() error {
 			return m.Delete(ctx, key)
 		})
@@ -178,6 +196,6 @@ func (m *mediaManagerImpl) Missing(ctx context.Context, key string) (bool, error
 }
 
 // Put uploads a file to the storage and returns its resulting URL.
-func (m *mediaManagerImpl) Put(ctx context.Context, file io.Reader, key string) (string, error) {
-	return m.defaultStorage.Put(ctx, file, key)
+func (m *mediaManagerImpl) Put(ctx context.Context, key string, file io.Reader) (string, error) {
+	return m.defaultStorage.Put(ctx, key, file)
 }

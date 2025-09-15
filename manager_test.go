@@ -3,98 +3,98 @@ package gomedia
 import (
 	"context"
 	"errors"
+	"io"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
-	"github.com/stretchr/testify/require"
 )
 
-func TestManager_NewManager(t *testing.T) {
+func TestMediaManager_NewMediaManager(t *testing.T) {
+	mockDriver := new(MockStorageDriver)
+
 	tests := []struct {
-		name                string
-		defaultStorageAlias string
-		setupStorage        func() map[string]MediaManager
-		expectedErr         error
+		name           string
+		defaultStorage string
+		storageMap     map[string]StorageDriver
+		expectErr      error
+		expectNil      bool
 	}{
 		{
-			name:                "should return manager when default storage exists",
-			defaultStorageAlias: "default",
-			setupStorage: func() map[string]MediaManager {
-				mockMgr := new(MockMediaManager)
-				return map[string]MediaManager{"default": mockMgr}
-			},
-			expectedErr: nil,
+			name:           "should return manager when default storage exists",
+			defaultStorage: "default",
+			storageMap:     map[string]StorageDriver{"default": mockDriver},
+			expectErr:      nil,
+			expectNil:      false,
 		},
 		{
-			name:                "should return error when default storage does not exist",
-			defaultStorageAlias: "nonexistent",
-			setupStorage: func() map[string]MediaManager {
-				mockMgr := new(MockMediaManager)
-				return map[string]MediaManager{"default": mockMgr}
-			},
-			expectedErr: ErrInvalidDefaultStorage,
+			name:           "should return error when default storage does not exist",
+			defaultStorage: "missing",
+			storageMap:     map[string]StorageDriver{"default": mockDriver},
+			expectErr:      ErrInvalidDefaultStorage,
+			expectNil:      true,
 		},
 		{
-			name:                "should return error when storage map is empty",
-			defaultStorageAlias: "default",
-			setupStorage: func() map[string]MediaManager {
-				return map[string]MediaManager{}
-			},
-			expectedErr: ErrInvalidDefaultStorage,
+			name:           "should return error when storage map is empty",
+			defaultStorage: "default",
+			storageMap:     map[string]StorageDriver{},
+			expectErr:      ErrInvalidDefaultStorage,
+			expectNil:      true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			storage := tt.setupStorage()
-			manager, err := NewManager(tt.defaultStorageAlias, storage)
+			mgr, err := NewMediaManager(tt.defaultStorage, tt.storageMap)
 
-			if tt.expectedErr != nil {
-				require.Error(t, err, "expected error to be returned")
-				assert.ErrorIs(t, err, tt.expectedErr, "expected error to match")
-				assert.Nil(t, manager, "expected manager to be nil")
+			if tt.expectErr != nil {
+				assert.ErrorIs(t, err, tt.expectErr, "expected error to match")
+				assert.Nil(t, mgr, "expected manager to be nil")
 			} else {
-				require.NoError(t, err, "expected no error")
-				assert.NotNil(t, manager, "expected manager to be not nil")
-			}
-
-			// assert expectations if mock exists
-			if mockMgr, ok := storage["default"].(*MockMediaManager); ok {
-				mockMgr.AssertExpectations(t)
+				assert.NoError(t, err, "expected no error")
+				assert.NotNil(t, mgr, "expected manager to be non-nil")
 			}
 		})
 	}
 }
 
-func TestManager_Storage(t *testing.T) {
-	mockDefault := new(MockMediaManager)
-	mockOther := new(MockMediaManager)
+func TestMediaManager_Storage(t *testing.T) {
+	mockDefault := new(MockStorageDriver)
+	mockOther := new(MockStorageDriver)
 
-	storage := map[string]MediaManager{
+	storageMap := map[string]StorageDriver{
 		"default": mockDefault,
 		"other":   mockOther,
 	}
 
-	manager, err := NewManager("default", storage)
-	require.NoError(t, err, "expected no error")
+	manager, err := NewMediaManager("default", storageMap)
+	assert.NoError(t, err, "expected no error creating manager")
 
 	tests := []struct {
-		name            string
-		alias           string
-		expectedStorage MediaManager
+		name       string
+		alias      string
+		expectNil  bool
+		expectSame bool
 	}{
 		{
-			name:            "should return manager with other as defaultStorage",
-			alias:           "other",
-			expectedStorage: mockOther,
+			name:       "should return manager with existing alias storage",
+			alias:      "other",
+			expectNil:  false,
+			expectSame: false,
 		},
 		{
-			name:            "should return manager with nil defaultStorage when alias does not exist",
-			alias:           "nonexistent",
-			expectedStorage: nil,
+			name:       "should return manager with nil storage when alias does not exist",
+			alias:      "missing",
+			expectNil:  true,
+			expectSame: false,
+		},
+		{
+			name:       "should return manager with same storage when alias is default",
+			alias:      "default",
+			expectNil:  false,
+			expectSame: true,
 		},
 	}
 
@@ -102,597 +102,609 @@ func TestManager_Storage(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			newMgr := manager.Storage(tt.alias)
 
-			// type assert back to *mediaManagerImpl so we can inspect defaultStorage
-			impl, ok := newMgr.(*mediaManagerImpl) // you'd need to export this struct
-			require.True(t, ok, "expected returned manager to be *mediaManagerImpl")
+			impl, ok := newMgr.(*mediaManagerImpl)
+			assert.True(t, ok, "expected returned MediaManager to be *mediaManagerImpl")
 
-			assert.Equal(t, tt.expectedStorage, impl.defaultStorage, "expected defaultStorage to match alias")
-		})
-	}
-}
-
-func TestManager_Delete(t *testing.T) {
-	tests := []struct {
-		name          string
-		setupMock     func(*MockMediaManager)
-		expectedError error
-	}{
-		{
-			name: "should delete successfully when defaultStorage returns no error",
-			setupMock: func(mockMgr *MockMediaManager) {
-				mockMgr.
-					On("Delete", mock.Anything, "file1").
-					Return(nil).
-					Once()
-			},
-			expectedError: nil,
-		},
-		{
-			name: "should return error when defaultStorage returns error",
-			setupMock: func(mockMgr *MockMediaManager) {
-				mockMgr.
-					On("Delete", mock.Anything, "file1").
-					Return(errors.New("delete failed")).
-					Once()
-			},
-			expectedError: errors.New("delete failed"),
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			mockMgr := new(MockMediaManager)
-			tt.setupMock(mockMgr)
-
-			// Build a manager with mock as default storage
-			manager := &mediaManagerImpl{ // must be exported or test in package gomedia
-				storageMap:     map[string]MediaManager{"default": mockMgr},
-				defaultStorage: mockMgr,
-			}
-
-			err := manager.Delete(context.Background(), "file1")
-
-			if tt.expectedError != nil {
-				require.Error(t, err, "expected error to be returned")
-				assert.EqualError(t, err, tt.expectedError.Error(), "expected error to match")
+			if tt.expectNil {
+				assert.Nil(t, impl.defaultStorage, "expected defaultStorage to be nil")
 			} else {
-				require.NoError(t, err, "expected no error")
+				assert.NotNil(t, impl.defaultStorage, "expected defaultStorage to be non-nil")
 			}
 
-			mockMgr.AssertExpectations(t)
+			if tt.expectSame {
+				assert.Equal(t, manager.(*mediaManagerImpl).defaultStorage, impl.defaultStorage, "expected same storage reference")
+			} else if !tt.expectNil {
+				assert.NotSame(t, manager.(*mediaManagerImpl).defaultStorage, impl.defaultStorage, "expected different storage reference")
+			}
 		})
 	}
 }
 
-func TestManager_DeleteMany(t *testing.T) {
+func TestMediaManager_Delete(t *testing.T) {
+	ctx := context.Background()
+	key := "test-key"
+	mockDriver := new(MockStorageDriver)
+
+	manager := &mediaManagerImpl{
+		storageMap:     map[string]StorageDriver{"default": mockDriver},
+		defaultStorage: mockDriver,
+	}
+
 	tests := []struct {
-		name          string
-		keys          []string
-		setupMock     func(*MockMediaManager)
-		expectedError error
+		name       string
+		key        string
+		mockReturn error
+		expectErr  bool
 	}{
 		{
-			name: "should return nil when no keys provided",
-			keys: []string{},
-			setupMock: func(mockMgr *MockMediaManager) {
-				// no expectations because no keys are passed
-			},
-			expectedError: nil,
+			name:       "should delete key successfully",
+			key:        key,
+			mockReturn: nil,
+			expectErr:  false,
 		},
 		{
-			name: "should delete all keys successfully when no errors occur",
-			keys: []string{"file1", "file2"},
-			setupMock: func(mockMgr *MockMediaManager) {
-				mockMgr.
-					On("Delete", mock.Anything, "file1").
-					Return(nil).
-					Once()
-
-				mockMgr.
-					On("Delete", mock.Anything, "file2").
-					Return(nil).
-					Once()
-			},
-			expectedError: nil,
-		},
-		{
-			name: "should return error when one delete fails",
-			keys: []string{"file1", "file2"},
-			setupMock: func(mockMgr *MockMediaManager) {
-				mockMgr.
-					On("Delete", mock.Anything, "file1").
-					Return(errors.New("delete failed")).
-					Once()
-
-				mockMgr.
-					On("Delete", mock.Anything, "file2").
-					Return(nil).
-					Once()
-			},
-			expectedError: errors.New("delete failed"),
+			name:       "should return error when delete fails",
+			key:        key,
+			mockReturn: errors.New("delete failed"),
+			expectErr:  true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mockMgr := new(MockMediaManager)
-			tt.setupMock(mockMgr)
+			mockDriver.ExpectedCalls = nil // reset calls for isolation
+			mockDriver.
+				On("Delete", ctx, tt.key).
+				Return(tt.mockReturn).
+				Once()
 
-			// Build manager with mock as default storage
-			manager := &mediaManagerImpl{ // must be exported OR test in package gomedia
-				storageMap:     map[string]MediaManager{"default": mockMgr},
-				defaultStorage: mockMgr,
-			}
+			err := manager.Delete(ctx, tt.key)
 
-			err := manager.DeleteMany(context.Background(), tt.keys...)
-
-			if tt.expectedError != nil {
-				require.Error(t, err, "expected error to be returned")
-				assert.EqualError(t, err, tt.expectedError.Error(), "expected error to match")
+			if tt.expectErr {
+				assert.Error(t, err, "expected error when delete fails")
+				assert.EqualError(t, err, tt.mockReturn.Error(), "expected correct error message")
 			} else {
-				require.NoError(t, err, "expected no error")
+				assert.NoError(t, err, "expected no error when delete succeeds")
 			}
 
-			mockMgr.AssertExpectations(t)
+			mockDriver.AssertExpectations(t)
 		})
 	}
 }
 
-func TestManager_Exists(t *testing.T) {
+func TestMediaManager_DeleteMany(t *testing.T) {
+	ctx := context.Background()
+	keys := []string{"key1", "key2", "key3"}
+
 	tests := []struct {
-		name          string
-		setupMock     func(*MockMediaManager)
-		expected      bool
-		expectedError error
+		name       string
+		keys       []string
+		mockReturn error
+		expectErr  bool
 	}{
 		{
-			name: "should return true when defaultStorage returns true",
-			setupMock: func(mockMgr *MockMediaManager) {
-				mockMgr.
-					On("Exists", mock.Anything, "file1").
-					Return(true, nil).
-					Once()
-			},
-			expected:      true,
-			expectedError: nil,
+			name:       "should delete many keys successfully",
+			keys:       keys,
+			mockReturn: nil,
+			expectErr:  false,
 		},
 		{
-			name: "should return false when defaultStorage returns false",
-			setupMock: func(mockMgr *MockMediaManager) {
-				mockMgr.
-					On("Exists", mock.Anything, "file1").
-					Return(false, nil).
-					Once()
-			},
-			expected:      false,
-			expectedError: nil,
-		},
-		{
-			name: "should return error when defaultStorage returns error",
-			setupMock: func(mockMgr *MockMediaManager) {
-				mockMgr.
-					On("Exists", mock.Anything, "file1").
-					Return(false, errors.New("exists failed")).
-					Once()
-			},
-			expected:      false,
-			expectedError: errors.New("exists failed"),
+			name:       "should return error when delete many fails",
+			keys:       keys,
+			mockReturn: errors.New("delete many failed"),
+			expectErr:  true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mockMgr := new(MockMediaManager)
-			tt.setupMock(mockMgr)
+			mockDriver := new(MockStorageDriver)
+
+			// Setup expectations only if keys exist
+			for _, k := range tt.keys {
+				if tt.expectErr && k == tt.keys[len(tt.keys)-1] {
+					mockDriver.On("Delete", mock.Anything, k).Return(tt.mockReturn).Once()
+				} else {
+					mockDriver.On("Delete", mock.Anything, k).Return(nil).Once()
+				}
+			}
 
 			manager := &mediaManagerImpl{
-				storageMap:     map[string]MediaManager{"default": mockMgr},
-				defaultStorage: mockMgr,
+				defaultStorage: mockDriver, // direct use, no adapter
 			}
 
-			exists, err := manager.Exists(context.Background(), "file1")
+			err := manager.DeleteMany(ctx, tt.keys...)
 
-			if tt.expectedError != nil {
-				require.Error(t, err, "expected error to be returned")
-				assert.EqualError(t, err, tt.expectedError.Error(), "expected error to match")
+			if tt.expectErr {
+				assert.Error(t, err, "expected error when delete fails")
+				assert.Contains(t, err.Error(), tt.mockReturn.Error(), "expected correct error message")
 			} else {
-				require.NoError(t, err, "expected no error")
+				assert.NoError(t, err, "expected no error when delete many succeeds")
 			}
-			assert.Equal(t, tt.expected, exists, "expected existence to match")
 
-			mockMgr.AssertExpectations(t)
+			mockDriver.AssertExpectations(t)
 		})
 	}
 }
 
-func TestManager_GetSignedURL(t *testing.T) {
+func TestMediaManager_Exists(t *testing.T) {
+	ctx := context.Background()
+	key := "test-key"
+	mockDriver := new(MockStorageDriver)
+
+	manager := &mediaManagerImpl{
+		storageMap:     map[string]StorageDriver{"default": mockDriver},
+		defaultStorage: mockDriver,
+	}
+
 	tests := []struct {
 		name          string
-		setupMock     func(*MockMediaManager)
-		expectedURL   string
-		expectedError error
+		key           string
+		mockReturnVal bool
+		mockReturnErr error
+		expectResult  bool
+		expectErr     bool
 	}{
 		{
-			name: "should return signed URL when defaultStorage returns one",
-			setupMock: func(mockMgr *MockMediaManager) {
-				mockMgr.
-					On("GetSignedURL", mock.Anything, "file1", mock.AnythingOfType("time.Duration")).
-					Return("http://signed.url/file1", nil).
-					Once()
-			},
-			expectedURL:   "http://signed.url/file1",
-			expectedError: nil,
+			name:          "should return true if key exists",
+			key:           key,
+			mockReturnVal: true,
+			mockReturnErr: nil,
+			expectResult:  true,
+			expectErr:     false,
 		},
 		{
-			name: "should return error when defaultStorage returns error",
-			setupMock: func(mockMgr *MockMediaManager) {
-				mockMgr.
-					On("GetSignedURL", mock.Anything, "file1", mock.AnythingOfType("time.Duration")).
-					Return("", errors.New("sign failed")).
-					Once()
-			},
-			expectedURL:   "",
-			expectedError: errors.New("sign failed"),
+			name:          "should return false if key does not exist",
+			key:           key,
+			mockReturnVal: false,
+			mockReturnErr: nil,
+			expectResult:  false,
+			expectErr:     false,
+		},
+		{
+			name:          "should return error if store returns an error",
+			key:           key,
+			mockReturnVal: false,
+			mockReturnErr: errors.New("some other error"),
+			expectResult:  false,
+			expectErr:     true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mockMgr := new(MockMediaManager)
-			tt.setupMock(mockMgr)
+			mockDriver.ExpectedCalls = nil // reset calls for isolation
+			mockDriver.
+				On("Exists", ctx, tt.key).
+				Return(tt.mockReturnVal, tt.mockReturnErr).
+				Once()
 
-			manager := &mediaManagerImpl{
-				storageMap:     map[string]MediaManager{"default": mockMgr},
-				defaultStorage: mockMgr,
-			}
+			result, err := manager.Exists(ctx, tt.key)
 
-			url, err := manager.GetSignedURL(context.Background(), "file1", 5*time.Minute)
-
-			if tt.expectedError != nil {
-				require.Error(t, err, "expected error to be returned")
-				assert.EqualError(t, err, tt.expectedError.Error(), "expected error to match")
+			if tt.expectErr {
+				assert.Error(t, err, "expected error")
+				assert.EqualError(t, err, tt.mockReturnErr.Error(), "expected correct error message")
+				assert.Equal(t, tt.expectResult, result, "expected correct result on error")
 			} else {
-				require.NoError(t, err, "expected no error")
+				assert.NoError(t, err, "expected no error")
+				assert.Equal(t, tt.expectResult, result, "expected correct result")
 			}
-			assert.Equal(t, tt.expectedURL, url, "expected URL to match")
 
-			mockMgr.AssertExpectations(t)
+			mockDriver.AssertExpectations(t)
 		})
 	}
 }
 
-func TestManager_GetSignedURLs(t *testing.T) {
+func TestMediaManager_GetSignedURL(t *testing.T) {
+	ctx := context.Background()
+	key := "test-key"
+	expiry := 5 * time.Minute
+	expectedURL := "https://signed.example.com/test-key"
+	mockDriver := new(MockStorageDriver)
+
+	manager := &mediaManagerImpl{
+		storageMap:     map[string]StorageDriver{"default": mockDriver},
+		defaultStorage: mockDriver,
+	}
+
 	tests := []struct {
 		name          string
-		keys          []string
-		setupMock     func(*MockMediaManager)
-		expectedURLs  []string
-		expectedError error
+		key           string
+		expiry        time.Duration
+		mockReturnVal string
+		mockReturnErr error
+		expectURL     string
+		expectErr     bool
 	}{
 		{
-			name: "should return empty slice when no keys provided",
-			keys: []string{},
-			setupMock: func(mockMgr *MockMediaManager) {
-				// no expectations because no keys are passed
-			},
-			expectedURLs:  []string{},
-			expectedError: nil,
+			name:          "should get signed URL successfully",
+			key:           key,
+			expiry:        expiry,
+			mockReturnVal: expectedURL,
+			mockReturnErr: nil,
+			expectURL:     expectedURL,
+			expectErr:     false,
 		},
 		{
-			name: "should return signed URLs for all keys successfully",
-			keys: []string{"file1", "file2"},
-			setupMock: func(mockMgr *MockMediaManager) {
-				mockMgr.
-					On("GetSignedURL", mock.Anything, "file1", mock.AnythingOfType("time.Duration")).
-					Return("http://signed.url/file1", nil).
-					Once()
-
-				mockMgr.
-					On("GetSignedURL", mock.Anything, "file2", mock.AnythingOfType("time.Duration")).
-					Return("http://signed.url/file2", nil).
-					Once()
-			},
-			expectedURLs:  []string{"http://signed.url/file1", "http://signed.url/file2"},
-			expectedError: nil,
-		},
-		{
-			name: "should return error when one GetSignedURL fails",
-			keys: []string{"file1", "file2"},
-			setupMock: func(mockMgr *MockMediaManager) {
-				mockMgr.
-					On("GetSignedURL", mock.Anything, "file1", mock.AnythingOfType("time.Duration")).
-					Return("", errors.New("sign failed")).
-					Once()
-
-				mockMgr.
-					On("GetSignedURL", mock.Anything, "file2", mock.AnythingOfType("time.Duration")).
-					Return("http://signed.url/file2", nil).
-					Once()
-			},
-			expectedURLs:  nil,
-			expectedError: errors.New("sign failed"),
+			name:          "should return error when get signed URL fails",
+			key:           key,
+			expiry:        expiry,
+			mockReturnVal: "",
+			mockReturnErr: errors.New("signed URL failed"),
+			expectURL:     "",
+			expectErr:     true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mockMgr := new(MockMediaManager)
-			tt.setupMock(mockMgr)
+			mockDriver.ExpectedCalls = nil // reset calls for isolation
+			mockDriver.
+				On("GetSignedURL", ctx, tt.key, tt.expiry).
+				Return(tt.mockReturnVal, tt.mockReturnErr).
+				Once()
 
-			manager := &mediaManagerImpl{
-				storageMap:     map[string]MediaManager{"default": mockMgr},
-				defaultStorage: mockMgr,
-			}
+			url, err := manager.GetSignedURL(ctx, tt.key, tt.expiry)
 
-			urls, err := manager.GetSignedURLs(context.Background(), tt.keys, 5*time.Minute)
-
-			if tt.expectedError != nil {
-				require.Error(t, err, "expected error to be returned")
-				assert.EqualError(t, err, tt.expectedError.Error(), "expected error to match")
+			if tt.expectErr {
+				assert.Error(t, err, "expected error when get signed URL fails")
+				assert.EqualError(t, err, tt.mockReturnErr.Error(), "expected correct error message")
+				assert.Equal(t, tt.expectURL, url, "expected empty URL on error")
 			} else {
-				require.NoError(t, err, "expected no error")
+				assert.NoError(t, err, "expected no error when get signed URL succeeds")
+				assert.Equal(t, tt.expectURL, url, "expected correct URL")
 			}
-			assert.Equal(t, tt.expectedURLs, urls, "expected URLs to match")
 
-			mockMgr.AssertExpectations(t)
+			mockDriver.AssertExpectations(t)
 		})
 	}
 }
 
-func TestManager_GetURL(t *testing.T) {
+func TestMediaManager_GetSignedURLs(t *testing.T) {
+	ctx := context.Background()
+	keys := []string{"key1", "key2", "key3"}
+	expiry := 5 * time.Minute
+	expectedURLs := []string{
+		"https://signed.example.com/key1",
+		"https://signed.example.com/key2",
+		"https://signed.example.com/key3",
+	}
+
 	tests := []struct {
-		name          string
-		setupMock     func(*MockMediaManager)
-		expectedURL   string
-		expectedError error
+		name           string
+		keys           []string
+		expiry         time.Duration
+		mockReturnURLs []string
+		mockReturnErr  error
+		expectURLs     []string
+		expectErr      bool
 	}{
 		{
-			name: "should return URL when defaultStorage returns one",
-			setupMock: func(mockMgr *MockMediaManager) {
-				mockMgr.
-					On("GetURL", mock.Anything, "file1").
-					Return("http://public.url/file1", nil).
-					Once()
-			},
-			expectedURL:   "http://public.url/file1",
-			expectedError: nil,
+			name:           "should get signed URLs successfully for all keys",
+			keys:           keys,
+			expiry:         expiry,
+			mockReturnURLs: expectedURLs,
+			mockReturnErr:  nil,
+			expectURLs:     expectedURLs,
+			expectErr:      false,
 		},
 		{
-			name: "should return error when defaultStorage returns error",
-			setupMock: func(mockMgr *MockMediaManager) {
-				mockMgr.
-					On("GetURL", mock.Anything, "file1").
-					Return("", errors.New("get URL failed")).
-					Once()
-			},
-			expectedURL:   "",
-			expectedError: errors.New("get URL failed"),
+			name:           "should handle empty keys list",
+			keys:           []string{},
+			expiry:         expiry,
+			mockReturnURLs: []string{},
+			mockReturnErr:  nil,
+			expectURLs:     []string{},
+			expectErr:      false,
+		},
+		{
+			name:           "should return error if any GetSignedURL fails",
+			keys:           keys,
+			expiry:         expiry,
+			mockReturnURLs: []string{"https://signed.example.com/key1"}, // Only one success
+			mockReturnErr:  errors.New("signed URL failed for key2"),
+			expectURLs:     nil,
+			expectErr:      true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mockMgr := new(MockMediaManager)
-			tt.setupMock(mockMgr)
+			mockDriver := new(MockStorageDriver)
+
+			// Mock GetSignedURL for each key in order
+			for i, k := range tt.keys {
+				if i < len(tt.mockReturnURLs) {
+					mockDriver.On("GetSignedURL", mock.Anything, k, tt.expiry).Return(tt.mockReturnURLs[i], nil).Once()
+				} else if tt.mockReturnErr != nil {
+					mockDriver.On("GetSignedURL", mock.Anything, k, tt.expiry).Return("", tt.mockReturnErr).Once()
+				}
+			}
 
 			manager := &mediaManagerImpl{
-				storageMap:     map[string]MediaManager{"default": mockMgr},
-				defaultStorage: mockMgr,
+				defaultStorage: mockDriver,
 			}
 
-			url, err := manager.GetURL(context.Background(), "file1")
+			urls, err := manager.GetSignedURLs(ctx, tt.keys, tt.expiry)
 
-			if tt.expectedError != nil {
-				require.Error(t, err, "expected error to be returned")
-				assert.EqualError(t, err, tt.expectedError.Error(), "expected error to match")
+			if tt.expectErr {
+				assert.Error(t, err, "expected error when getting signed URLs")
+				if tt.mockReturnErr != nil {
+					assert.Contains(t, err.Error(), tt.mockReturnErr.Error(), "expected correct error message")
+				}
 			} else {
-				require.NoError(t, err, "expected no error")
+				assert.NoError(t, err, "expected no error when getting signed URLs succeeds")
 			}
-			assert.Equal(t, tt.expectedURL, url, "expected URL to match")
 
-			mockMgr.AssertExpectations(t)
+			assert.Equal(t, tt.expectURLs, urls, "expected URLs to match in order")
+			mockDriver.AssertExpectations(t)
 		})
 	}
 }
 
-func TestManager_GetURLs(t *testing.T) {
+func TestMediaManager_GetURL(t *testing.T) {
+	ctx := context.Background()
+	key := "test-key"
+	expectedURL := "http://example.com/test-key"
+	mockDriver := new(MockStorageDriver)
+
+	manager := &mediaManagerImpl{
+		storageMap:     map[string]StorageDriver{"default": mockDriver},
+		defaultStorage: mockDriver,
+	}
+
 	tests := []struct {
 		name          string
-		keys          []string
-		setupMock     func(*MockMediaManager)
-		expectedURLs  []string
-		expectedError error
+		key           string
+		mockReturnVal string
+		mockReturnErr error
+		expectURL     string
+		expectErr     bool
 	}{
 		{
-			name: "should return empty slice when no keys provided",
-			keys: []string{},
-			setupMock: func(mockMgr *MockMediaManager) {
-				// no expectations because no keys are passed
-			},
-			expectedURLs:  []string{},
-			expectedError: nil,
+			name:          "should get URL successfully",
+			key:           key,
+			mockReturnVal: expectedURL,
+			mockReturnErr: nil,
+			expectURL:     expectedURL,
+			expectErr:     false,
 		},
 		{
-			name: "should return URLs for all keys successfully",
-			keys: []string{"file1", "file2"},
-			setupMock: func(mockMgr *MockMediaManager) {
-				mockMgr.
-					On("GetURL", mock.Anything, "file1").
-					Return("http://public.url/file1", nil).
-					Once()
-
-				mockMgr.
-					On("GetURL", mock.Anything, "file2").
-					Return("http://public.url/file2", nil).
-					Once()
-			},
-			expectedURLs:  []string{"http://public.url/file1", "http://public.url/file2"},
-			expectedError: nil,
-		},
-		{
-			name: "should return error when one GetURL fails",
-			keys: []string{"file1", "file2"},
-			setupMock: func(mockMgr *MockMediaManager) {
-				mockMgr.
-					On("GetURL", mock.Anything, "file1").
-					Return("", errors.New("get URL failed")).
-					Once()
-
-				mockMgr.
-					On("GetURL", mock.Anything, "file2").
-					Return("http://public.url/file2", nil).
-					Once()
-			},
-			expectedURLs:  nil,
-			expectedError: errors.New("get URL failed"),
+			name:          "should return error when get URL fails",
+			key:           key,
+			mockReturnVal: "",
+			mockReturnErr: errors.New("get URL failed"),
+			expectURL:     "",
+			expectErr:     true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mockMgr := new(MockMediaManager)
-			tt.setupMock(mockMgr)
+			mockDriver.ExpectedCalls = nil // reset calls for isolation
+			mockDriver.
+				On("GetURL", ctx, tt.key).
+				Return(tt.mockReturnVal, tt.mockReturnErr).
+				Once()
 
-			manager := &mediaManagerImpl{
-				storageMap:     map[string]MediaManager{"default": mockMgr},
-				defaultStorage: mockMgr,
-			}
+			url, err := manager.GetURL(ctx, tt.key)
 
-			urls, err := manager.GetURLs(context.Background(), tt.keys)
-
-			if tt.expectedError != nil {
-				require.Error(t, err, "expected error to be returned")
-				assert.EqualError(t, err, tt.expectedError.Error(), "expected error to match")
+			if tt.expectErr {
+				assert.Error(t, err, "expected error when get URL fails")
+				assert.EqualError(t, err, tt.mockReturnErr.Error(), "expected correct error message")
+				assert.Equal(t, tt.expectURL, url, "expected empty URL on error")
 			} else {
-				require.NoError(t, err, "expected no error")
+				assert.NoError(t, err, "expected no error when get URL succeeds")
+				assert.Equal(t, tt.expectURL, url, "expected correct URL")
 			}
-			assert.Equal(t, tt.expectedURLs, urls, "expected URLs to match")
 
-			mockMgr.AssertExpectations(t)
+			mockDriver.AssertExpectations(t)
 		})
 	}
 }
 
-func TestManager_Missing(t *testing.T) {
+func TestMediaManager_GetURLs(t *testing.T) {
+	ctx := context.Background()
+	keys := []string{"key1", "key2", "key3"}
+	expectedURLs := []string{
+		"http://example.com/key1",
+		"http://example.com/key2",
+		"http://example.com/key3",
+	}
+
 	tests := []struct {
-		name          string
-		setupMock     func(*MockMediaManager)
-		expected      bool
-		expectedError error
+		name           string
+		keys           []string
+		mockReturnURLs []string
+		mockReturnErr  error
+		expectURLs     []string
+		expectErr      bool
 	}{
 		{
-			name: "should return true when file is missing",
-			setupMock: func(mockMgr *MockMediaManager) {
-				mockMgr.
-					On("Exists", mock.Anything, "file1").
-					Return(false, nil).
-					Once()
-			},
-			expected:      true,
-			expectedError: nil,
+			name:           "should get URLs successfully for all keys",
+			keys:           keys,
+			mockReturnURLs: expectedURLs,
+			mockReturnErr:  nil,
+			expectURLs:     expectedURLs,
+			expectErr:      false,
 		},
 		{
-			name: "should return false when file exists",
-			setupMock: func(mockMgr *MockMediaManager) {
-				mockMgr.
-					On("Exists", mock.Anything, "file1").
-					Return(true, nil).
-					Once()
-			},
-			expected:      false,
-			expectedError: nil,
+			name:           "should handle empty keys list",
+			keys:           []string{},
+			mockReturnURLs: []string{},
+			mockReturnErr:  nil,
+			expectURLs:     []string{},
+			expectErr:      false,
 		},
 		{
-			name: "should return error when Exists returns error",
-			setupMock: func(mockMgr *MockMediaManager) {
-				mockMgr.
-					On("Exists", mock.Anything, "file1").
-					Return(false, errors.New("exists failed")).
-					Once()
-			},
-			expected:      false,
-			expectedError: errors.New("exists failed"),
+			name:           "should return error if any GetURL fails",
+			keys:           keys,
+			mockReturnURLs: []string{"http://example.com/key1"},
+			mockReturnErr:  errors.New("get URL failed for key2"),
+			expectURLs:     nil,
+			expectErr:      true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mockMgr := new(MockMediaManager)
-			tt.setupMock(mockMgr)
+			mockDriver := new(MockStorageDriver)
+
+			// Mock GetURL for each key in order
+			for i, k := range tt.keys {
+				if i < len(tt.mockReturnURLs) {
+					mockDriver.On("GetURL", mock.Anything, k).Return(tt.mockReturnURLs[i], nil).Once()
+				} else if tt.mockReturnErr != nil {
+					mockDriver.On("GetURL", mock.Anything, k).Return("", tt.mockReturnErr).Once()
+				}
+			}
 
 			manager := &mediaManagerImpl{
-				storageMap:     map[string]MediaManager{"default": mockMgr},
-				defaultStorage: mockMgr,
+				defaultStorage: mockDriver,
 			}
 
-			missing, err := manager.Missing(context.Background(), "file1")
+			urls, err := manager.GetURLs(ctx, tt.keys)
 
-			if tt.expectedError != nil {
-				require.Error(t, err, "expected error to be returned")
-				assert.EqualError(t, err, tt.expectedError.Error(), "expected error to match")
+			if tt.expectErr {
+				assert.Error(t, err, "expected error when getting URLs")
+				if tt.mockReturnErr != nil {
+					assert.Contains(t, err.Error(), tt.mockReturnErr.Error(), "expected correct error message")
+				}
 			} else {
-				require.NoError(t, err, "expected no error")
+				assert.NoError(t, err, "expected no error when getting URLs succeeds")
 			}
-			assert.Equal(t, tt.expected, missing, "expected missing status to match")
 
-			mockMgr.AssertExpectations(t)
+			assert.Equal(t, tt.expectURLs, urls, "expected URLs to match in order")
+			mockDriver.AssertExpectations(t)
 		})
 	}
 }
 
-func TestManager_Put(t *testing.T) {
+func TestMediaManager_Missing(t *testing.T) {
+	ctx := context.Background()
+	key := "test-key"
+	mockDriver := new(MockStorageDriver)
+
+	manager := &mediaManagerImpl{
+		storageMap:     map[string]StorageDriver{"default": mockDriver},
+		defaultStorage: mockDriver,
+	}
+
 	tests := []struct {
 		name          string
-		setupMock     func(*MockMediaManager)
-		expectedURL   string
-		expectedError error
+		key           string
+		mockReturnVal bool
+		mockReturnErr error
+		expectResult  bool
+		expectErr     bool
 	}{
 		{
-			name: "should put file successfully and return URL",
-			setupMock: func(mockMgr *MockMediaManager) {
-				mockMgr.
-					On("Put", mock.Anything, mock.Anything, "file1").
-					Return("http://put.url/file1", nil).
-					Once()
-			},
-			expectedURL:   "http://put.url/file1",
-			expectedError: nil,
+			name:          "should return false if key does not exist",
+			key:           key,
+			mockReturnVal: false,
+			mockReturnErr: nil,
+			expectResult:  true, // Missing means it does not exist
+			expectErr:     false,
 		},
 		{
-			name: "should return error when defaultStorage returns error",
-			setupMock: func(mockMgr *MockMediaManager) {
-				mockMgr.
-					On("Put", mock.Anything, mock.Anything, "file1").
-					Return("", errors.New("put failed")).
-					Once()
-			},
-			expectedURL:   "",
-			expectedError: errors.New("put failed"),
+			name:          "should return true if key exists",
+			key:           key,
+			mockReturnVal: true,
+			mockReturnErr: nil,
+			expectResult:  false, // Missing means it does not exist, so if it exists, it's not missing
+			expectErr:     false,
+		},
+		{
+			name:          "should return error if store returns an error",
+			key:           key,
+			mockReturnVal: false,
+			mockReturnErr: errors.New("some other error"),
+			expectResult:  false, // Default value on error
+			expectErr:     true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mockMgr := new(MockMediaManager)
-			tt.setupMock(mockMgr)
+			mockDriver.ExpectedCalls = nil // reset calls for isolation
+			mockDriver.
+				On("Exists", ctx, tt.key).
+				Return(tt.mockReturnVal, tt.mockReturnErr).
+				Once()
 
-			// Build manager with mock as default storage
-			manager := &mediaManagerImpl{
-				storageMap:     map[string]MediaManager{"default": mockMgr},
-				defaultStorage: mockMgr,
-			}
+			result, err := manager.Missing(ctx, tt.key)
 
-			url, err := manager.Put(context.Background(), strings.NewReader("dummy"), "file1")
-
-			if tt.expectedError != nil {
-				require.Error(t, err, "expected error to be returned")
-				assert.EqualError(t, err, tt.expectedError.Error(), "expected error to match")
+			if tt.expectErr {
+				assert.Error(t, err, "expected error")
+				assert.EqualError(t, err, tt.mockReturnErr.Error(), "expected correct error message")
+				assert.Equal(t, tt.expectResult, result, "expected correct result on error")
 			} else {
-				require.NoError(t, err, "expected no error")
+				assert.NoError(t, err, "expected no error")
+				assert.Equal(t, tt.expectResult, result, "expected correct result")
 			}
-			assert.Equal(t, tt.expectedURL, url, "expected URL to match")
 
-			mockMgr.AssertExpectations(t)
+			mockDriver.AssertExpectations(t)
+		})
+	}
+}
+
+func TestMediaManager_Put(t *testing.T) {
+	ctx := context.Background()
+	key := "test-key"
+	content := "upload content"
+	reader := strings.NewReader(content)
+	mockDriver := new(MockStorageDriver)
+
+	manager := &mediaManagerImpl{
+		defaultStorage: mockDriver,
+	}
+
+	tests := []struct {
+		name      string
+		key       string
+		content   io.Reader
+		mockURL   string
+		mockErr   error
+		expectErr bool
+	}{
+		{
+			name:      "should put content successfully",
+			key:       key,
+			content:   reader,
+			mockURL:   "http://example.com/test-key",
+			mockErr:   nil,
+			expectErr: false,
+		},
+		{
+			name:      "should return error when put fails",
+			key:       key,
+			content:   reader,
+			mockURL:   "",
+			mockErr:   errors.New("put failed"),
+			expectErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mockDriver.ExpectedCalls = nil // reset calls
+			mockDriver.
+				On("Put", mock.Anything, tt.key, mock.Anything).
+				Return(tt.mockURL, tt.mockErr).
+				Once()
+
+			url, err := manager.Put(ctx, tt.key, tt.content)
+
+			if tt.expectErr {
+				assert.Error(t, err, "expected error when put fails")
+				assert.EqualError(t, err, tt.mockErr.Error(), "expected correct error message")
+				assert.Empty(t, url, "expected empty URL on error")
+			} else {
+				assert.NoError(t, err, "expected no error when put succeeds")
+				assert.Equal(t, tt.mockURL, url, "expected correct URL to be returned")
+			}
+
+			mockDriver.AssertExpectations(t)
 		})
 	}
 }
