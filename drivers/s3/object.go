@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/rs/zerolog/log"
-	gomedia "github.com/shoraid/go-media"
+	gostorage "github.com/shoraid/go-storage"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	v4 "github.com/aws/aws-sdk-go-v2/aws/signer/v4"
@@ -48,7 +48,7 @@ type ObjectStorageConfig struct {
 	DefaultExpiry time.Duration // default expiry duration for signed URLs
 }
 
-// ObjectStorage is the concrete implementation of gomedia.StorageDriver for S3-compatible storages.
+// ObjectStorage is the concrete implementation of gostorage.StorageDriver for S3-compatible storages.
 type ObjectStorage struct {
 	client        s3Client
 	bucket        string
@@ -58,14 +58,14 @@ type ObjectStorage struct {
 
 // NewObjectStorage initializes and returns an ObjectStorage instance using the given config.
 // It loads AWS configuration, sets up the S3 client, and prepares a presign client.
-// Returns gomedia.ErrInvalidConfig if credentials or config are invalid.
-func NewObjectStorage(cfg ObjectStorageConfig) (gomedia.StorageDriver, error) {
+// Returns gostorage.ErrInvalidConfig if credentials or config are invalid.
+func NewObjectStorage(cfg ObjectStorageConfig) (gostorage.StorageDriver, error) {
 	if cfg.AccessKey == "" {
-		return nil, gomedia.ErrInvalidConfig
+		return nil, gostorage.ErrInvalidConfig
 	}
 
 	if cfg.SecretKey == "" {
-		return nil, gomedia.ErrInvalidConfig
+		return nil, gostorage.ErrInvalidConfig
 	}
 
 	storageCfg, err := config.LoadDefaultConfig(context.Background(),
@@ -76,7 +76,7 @@ func NewObjectStorage(cfg ObjectStorageConfig) (gomedia.StorageDriver, error) {
 	)
 	if err != nil {
 		log.Error().Err(err).Msg("failed to load config")
-		return nil, gomedia.ErrInvalidConfig
+		return nil, gostorage.ErrInvalidConfig
 	}
 
 	client := s3.NewFromConfig(storageCfg, func(o *s3.Options) {
@@ -108,7 +108,7 @@ func (s *ObjectStorage) Delete(ctx context.Context, key string) error {
 	})
 	if err != nil {
 		log.Error().Err(err).Str("key", key).Msg("failed to delete file from S3")
-		return gomedia.ErrInternal
+		return gostorage.ErrInternal
 	}
 
 	return nil
@@ -128,7 +128,7 @@ func (s *ObjectStorage) Exists(ctx context.Context, key string) (bool, error) {
 		}
 
 		log.Error().Err(err).Str("key", key).Msg("failed to check if file exists in S3")
-		return false, gomedia.ErrInternal
+		return false, gostorage.ErrInternal
 	}
 
 	return true, nil
@@ -147,7 +147,7 @@ func (s *ObjectStorage) GetSignedURL(ctx context.Context, key string, expiry tim
 	}, s3.WithPresignExpires(expiry))
 	if err != nil {
 		log.Error().Err(err).Str("key", key).Msg("failed to generate signed URL")
-		return "", gomedia.ErrInternal
+		return "", gostorage.ErrInternal
 	}
 
 	return req.URL, nil
@@ -191,7 +191,7 @@ func validateKey(name string) error {
 func (s *ObjectStorage) Put(ctx context.Context, key string, file io.Reader) (string, error) {
 	if err := validateKey(key); err != nil {
 		log.Error().Err(err).Str("key", key).Msg("invalid key")
-		return "", gomedia.ErrInvalidKey
+		return "", gostorage.ErrInvalidKey
 	}
 
 	_, err := s.client.PutObject(ctx, &s3.PutObjectInput{
@@ -202,7 +202,7 @@ func (s *ObjectStorage) Put(ctx context.Context, key string, file io.Reader) (st
 	})
 	if err != nil {
 		log.Error().Err(err).Str("key", key).Msg("failed to upload file to S3")
-		return "", gomedia.ErrInternal
+		return "", gostorage.ErrInternal
 	}
 
 	// Public bucket: return direct URL

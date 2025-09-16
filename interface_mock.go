@@ -1,4 +1,4 @@
-package gomedia
+package gostorage
 
 import (
 	"context"

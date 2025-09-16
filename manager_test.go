@@ -1,4 +1,4 @@
-package gomedia
+package gostorage
 
 import (
 	"context"
@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/mock"
 )
 
-func TestMediaManager_NewMediaManager(t *testing.T) {
+func TestStorageManager_NewStorageManager(t *testing.T) {
 	mockDriver := new(MockStorageDriver)
 
 	tests := []struct {
@@ -47,7 +47,7 @@ func TestMediaManager_NewMediaManager(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mgr, err := NewMediaManager(tt.defaultStorage, tt.storageMap)
+			mgr, err := NewStorageManager(tt.defaultStorage, tt.storageMap)
 
 			if tt.expectErr != nil {
 				assert.ErrorIs(t, err, tt.expectErr, "expected error to match")
@@ -60,7 +60,7 @@ func TestMediaManager_NewMediaManager(t *testing.T) {
 	}
 }
 
-func TestMediaManager_Storage(t *testing.T) {
+func TestStorageManager_Storage(t *testing.T) {
 	mockDefault := new(MockStorageDriver)
 	mockOther := new(MockStorageDriver)
 
@@ -69,7 +69,7 @@ func TestMediaManager_Storage(t *testing.T) {
 		"other":   mockOther,
 	}
 
-	manager, err := NewMediaManager("default", storageMap)
+	manager, err := NewStorageManager("default", storageMap)
 	assert.NoError(t, err, "expected no error creating manager")
 
 	tests := []struct {
@@ -102,8 +102,8 @@ func TestMediaManager_Storage(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			newMgr := manager.Storage(tt.alias)
 
-			impl, ok := newMgr.(*mediaManagerImpl)
-			assert.True(t, ok, "expected returned MediaManager to be *mediaManagerImpl")
+			impl, ok := newMgr.(*storageManagerImpl)
+			assert.True(t, ok, "expected returned StorageManager to be *storageManagerImpl")
 
 			if tt.expectNil {
 				assert.Nil(t, impl.defaultStorage, "expected defaultStorage to be nil")
@@ -112,20 +112,20 @@ func TestMediaManager_Storage(t *testing.T) {
 			}
 
 			if tt.expectSame {
-				assert.Equal(t, manager.(*mediaManagerImpl).defaultStorage, impl.defaultStorage, "expected same storage reference")
+				assert.Equal(t, manager.(*storageManagerImpl).defaultStorage, impl.defaultStorage, "expected same storage reference")
 			} else if !tt.expectNil {
-				assert.NotSame(t, manager.(*mediaManagerImpl).defaultStorage, impl.defaultStorage, "expected different storage reference")
+				assert.NotSame(t, manager.(*storageManagerImpl).defaultStorage, impl.defaultStorage, "expected different storage reference")
 			}
 		})
 	}
 }
 
-func TestMediaManager_Delete(t *testing.T) {
+func TestStorageManager_Delete(t *testing.T) {
 	ctx := context.Background()
 	key := "test-key"
 	mockDriver := new(MockStorageDriver)
 
-	manager := &mediaManagerImpl{
+	manager := &storageManagerImpl{
 		storageMap:     map[string]StorageDriver{"default": mockDriver},
 		defaultStorage: mockDriver,
 	}
@@ -172,7 +172,7 @@ func TestMediaManager_Delete(t *testing.T) {
 	}
 }
 
-func TestMediaManager_DeleteMany(t *testing.T) {
+func TestStorageManager_DeleteMany(t *testing.T) {
 	ctx := context.Background()
 	keys := []string{"key1", "key2", "key3"}
 
@@ -209,7 +209,7 @@ func TestMediaManager_DeleteMany(t *testing.T) {
 				}
 			}
 
-			manager := &mediaManagerImpl{
+			manager := &storageManagerImpl{
 				defaultStorage: mockDriver, // direct use, no adapter
 			}
 
@@ -227,12 +227,12 @@ func TestMediaManager_DeleteMany(t *testing.T) {
 	}
 }
 
-func TestMediaManager_Exists(t *testing.T) {
+func TestStorageManager_Exists(t *testing.T) {
 	ctx := context.Background()
 	key := "test-key"
 	mockDriver := new(MockStorageDriver)
 
-	manager := &mediaManagerImpl{
+	manager := &storageManagerImpl{
 		storageMap:     map[string]StorageDriver{"default": mockDriver},
 		defaultStorage: mockDriver,
 	}
@@ -295,14 +295,14 @@ func TestMediaManager_Exists(t *testing.T) {
 	}
 }
 
-func TestMediaManager_GetSignedURL(t *testing.T) {
+func TestStorageManager_GetSignedURL(t *testing.T) {
 	ctx := context.Background()
 	key := "test-key"
 	expiry := 5 * time.Minute
 	expectedURL := "https://signed.example.com/test-key"
 	mockDriver := new(MockStorageDriver)
 
-	manager := &mediaManagerImpl{
+	manager := &storageManagerImpl{
 		storageMap:     map[string]StorageDriver{"default": mockDriver},
 		defaultStorage: mockDriver,
 	}
@@ -360,7 +360,7 @@ func TestMediaManager_GetSignedURL(t *testing.T) {
 	}
 }
 
-func TestMediaManager_GetSignedURLs(t *testing.T) {
+func TestStorageManager_GetSignedURLs(t *testing.T) {
 	ctx := context.Background()
 	keys := []string{"key1", "key2", "key3"}
 	expiry := 5 * time.Minute
@@ -421,7 +421,7 @@ func TestMediaManager_GetSignedURLs(t *testing.T) {
 				}
 			}
 
-			manager := &mediaManagerImpl{
+			manager := &storageManagerImpl{
 				defaultStorage: mockDriver,
 			}
 
@@ -442,13 +442,13 @@ func TestMediaManager_GetSignedURLs(t *testing.T) {
 	}
 }
 
-func TestMediaManager_GetURL(t *testing.T) {
+func TestStorageManager_GetURL(t *testing.T) {
 	ctx := context.Background()
 	key := "test-key"
 	expectedURL := "http://example.com/test-key"
 	mockDriver := new(MockStorageDriver)
 
-	manager := &mediaManagerImpl{
+	manager := &storageManagerImpl{
 		storageMap:     map[string]StorageDriver{"default": mockDriver},
 		defaultStorage: mockDriver,
 	}
@@ -503,7 +503,7 @@ func TestMediaManager_GetURL(t *testing.T) {
 	}
 }
 
-func TestMediaManager_GetURLs(t *testing.T) {
+func TestStorageManager_GetURLs(t *testing.T) {
 	ctx := context.Background()
 	keys := []string{"key1", "key2", "key3"}
 	expectedURLs := []string{
@@ -559,7 +559,7 @@ func TestMediaManager_GetURLs(t *testing.T) {
 				}
 			}
 
-			manager := &mediaManagerImpl{
+			manager := &storageManagerImpl{
 				defaultStorage: mockDriver,
 			}
 
@@ -580,12 +580,12 @@ func TestMediaManager_GetURLs(t *testing.T) {
 	}
 }
 
-func TestMediaManager_Missing(t *testing.T) {
+func TestStorageManager_Missing(t *testing.T) {
 	ctx := context.Background()
 	key := "test-key"
 	mockDriver := new(MockStorageDriver)
 
-	manager := &mediaManagerImpl{
+	manager := &storageManagerImpl{
 		storageMap:     map[string]StorageDriver{"default": mockDriver},
 		defaultStorage: mockDriver,
 	}
@@ -648,14 +648,14 @@ func TestMediaManager_Missing(t *testing.T) {
 	}
 }
 
-func TestMediaManager_Put(t *testing.T) {
+func TestStorageManager_Put(t *testing.T) {
 	ctx := context.Background()
 	key := "test-key"
 	content := "upload content"
 	reader := strings.NewReader(content)
 	mockDriver := new(MockStorageDriver)
 
-	manager := &mediaManagerImpl{
+	manager := &storageManagerImpl{
 		defaultStorage: mockDriver,
 	}
 

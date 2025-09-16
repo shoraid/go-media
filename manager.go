@@ -1,4 +1,4 @@
-package gomedia
+package gostorage
 
 import (
 	"context"
@@ -10,13 +10,13 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-// MediaManager is the main interface for managing media files.
+// StorageManager is the main interface for managing storage files.
 // It provides methods for uploading, deleting, checking existence,
 // and retrieving signed or public URLs for files across different storages.
-type MediaManager interface {
-	// Storage returns a new MediaManager that uses the storage alias provided.
+type StorageManager interface {
+	// Storage returns a new StorageManager that uses the storage alias provided.
 	// Useful when you have multiple storage backends and need to switch dynamically.
-	Storage(alias string) MediaManager
+	Storage(alias string) StorageManager
 
 	// Delete removes a single file identified by key.
 	Delete(ctx context.Context, key string) error
@@ -48,36 +48,36 @@ type MediaManager interface {
 	Put(ctx context.Context, key string, file io.Reader) (string, error)
 }
 
-// mediaManagerImpl is the concrete implementation of MediaManager.
+// storageManagerImpl is the concrete implementation of StorageManager.
 // It delegates calls to the defaultStorage or a selected storage from storageMap.
-type mediaManagerImpl struct {
+type storageManagerImpl struct {
 	mu             sync.RWMutex
 	storageMap     map[string]StorageDriver // all available storages by alias
 	defaultStorage StorageDriver            // the currently selected storage
 }
 
-// NewManager creates a new MediaManager with a default storage alias.
+// NewManager creates a new StorageManager with a default storage alias.
 // Returns an error if the alias does not exist in the provided storage map.
-func NewMediaManager(defaultStorageAlias string, storage map[string]StorageDriver) (MediaManager, error) {
+func NewStorageManager(defaultStorageAlias string, storage map[string]StorageDriver) (StorageManager, error) {
 	defaultStorage, exists := storage[defaultStorageAlias]
 	if !exists {
 		log.
 			Warn().
 			Str("defaultStorageAlias", defaultStorageAlias).
-			Msg("media: storage alias not found, returning manager with nil default storage")
+			Msg("storage: storage alias not found, returning manager with nil default storage")
 
 		return nil, ErrInvalidDefaultStorage
 	}
 
-	return &mediaManagerImpl{
+	return &storageManagerImpl{
 		storageMap:     storage,
 		defaultStorage: defaultStorage,
 	}, nil
 }
 
-// Storage returns a new MediaManager using the given alias as its default storage.
+// Storage returns a new StorageManager using the given alias as its default storage.
 // If alias is not found, defaultStorage will be nil (be careful when calling methods).
-func (m *mediaManagerImpl) Storage(alias string) MediaManager {
+func (m *storageManagerImpl) Storage(alias string) StorageManager {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
@@ -86,23 +86,23 @@ func (m *mediaManagerImpl) Storage(alias string) MediaManager {
 		log.
 			Warn().
 			Str("alias", alias).
-			Msg("media: storage alias not found, returning manager with nil default storage")
+			Msg("storage: storage alias not found, returning manager with nil default storage")
 	}
 
-	return &mediaManagerImpl{
+	return &storageManagerImpl{
 		storageMap:     m.storageMap,
 		defaultStorage: defaultStorage,
 	}
 }
 
 // Delete removes a single file from the storage.
-func (m *mediaManagerImpl) Delete(ctx context.Context, key string) error {
+func (m *storageManagerImpl) Delete(ctx context.Context, key string) error {
 	return m.defaultStorage.Delete(ctx, key)
 }
 
 // DeleteMany removes multiple files concurrently from the storage.
 // Uses errgroup to run deletions in parallel and return the first error encountered.
-func (m *mediaManagerImpl) DeleteMany(ctx context.Context, keys ...string) error {
+func (m *storageManagerImpl) DeleteMany(ctx context.Context, keys ...string) error {
 	g, ctx := errgroup.WithContext(ctx)
 
 	for _, key := range keys {
@@ -119,17 +119,17 @@ func (m *mediaManagerImpl) DeleteMany(ctx context.Context, keys ...string) error
 }
 
 // Exists checks whether a file exists in the storage.
-func (m *mediaManagerImpl) Exists(ctx context.Context, key string) (bool, error) {
+func (m *storageManagerImpl) Exists(ctx context.Context, key string) (bool, error) {
 	return m.defaultStorage.Exists(ctx, key)
 }
 
 // GetSignedURL returns a temporary signed URL for accessing the file in storage.
-func (m *mediaManagerImpl) GetSignedURL(ctx context.Context, key string, expiry time.Duration) (string, error) {
+func (m *storageManagerImpl) GetSignedURL(ctx context.Context, key string, expiry time.Duration) (string, error) {
 	return m.defaultStorage.GetSignedURL(ctx, key, expiry)
 }
 
 // GetSignedURLs returns signed URLs for multiple files concurrently.
-func (m *mediaManagerImpl) GetSignedURLs(ctx context.Context, keys []string, expiry time.Duration) ([]string, error) {
+func (m *storageManagerImpl) GetSignedURLs(ctx context.Context, keys []string, expiry time.Duration) ([]string, error) {
 	urls := make([]string, len(keys))
 	g, ctx := errgroup.WithContext(ctx)
 
@@ -155,12 +155,12 @@ func (m *mediaManagerImpl) GetSignedURLs(ctx context.Context, keys []string, exp
 }
 
 // GetURL returns the direct (public) URL of a file from the storage.
-func (m *mediaManagerImpl) GetURL(ctx context.Context, key string) (string, error) {
+func (m *storageManagerImpl) GetURL(ctx context.Context, key string) (string, error) {
 	return m.defaultStorage.GetURL(ctx, key)
 }
 
 // GetURLs returns direct URLs for multiple files concurrently.
-func (m *mediaManagerImpl) GetURLs(ctx context.Context, keys []string) ([]string, error) {
+func (m *storageManagerImpl) GetURLs(ctx context.Context, keys []string) ([]string, error) {
 	urls := make([]string, len(keys))
 	g, ctx := errgroup.WithContext(ctx)
 
@@ -186,7 +186,7 @@ func (m *mediaManagerImpl) GetURLs(ctx context.Context, keys []string) ([]string
 }
 
 // Missing returns true if the file does not exist in the storage.
-func (m *mediaManagerImpl) Missing(ctx context.Context, key string) (bool, error) {
+func (m *storageManagerImpl) Missing(ctx context.Context, key string) (bool, error) {
 	exists, err := m.Exists(ctx, key)
 	if err != nil {
 		return false, err
@@ -196,6 +196,6 @@ func (m *mediaManagerImpl) Missing(ctx context.Context, key string) (bool, error
 }
 
 // Put uploads a file to the storage and returns its resulting URL.
-func (m *mediaManagerImpl) Put(ctx context.Context, key string, file io.Reader) (string, error) {
+func (m *storageManagerImpl) Put(ctx context.Context, key string, file io.Reader) (string, error) {
 	return m.defaultStorage.Put(ctx, key, file)
 }

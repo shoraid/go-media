@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	gomedia "github.com/shoraid/go-media"
+	gostorage "github.com/shoraid/go-storage"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -46,7 +46,7 @@ func TestNewObjectStorage(t *testing.T) {
 				Region:    "us-east-1",
 				SecretKey: "test-secret-key",
 			},
-			expectedErr: gomedia.ErrInvalidConfig,
+			expectedErr: gostorage.ErrInvalidConfig,
 		},
 		{
 			name: "should return error when secret key is missing",
@@ -55,7 +55,7 @@ func TestNewObjectStorage(t *testing.T) {
 				Region:    "us-east-1",
 				AccessKey: "test-access-key",
 			},
-			expectedErr: gomedia.ErrInvalidConfig,
+			expectedErr: gostorage.ErrInvalidConfig,
 		},
 	}
 
@@ -88,7 +88,7 @@ func TestObjectStorage_Delete(t *testing.T) {
 		{
 			name:        "should return internal error when DeleteObject fails",
 			mockErr:     errors.New("delete error"),
-			expectedErr: gomedia.ErrInternal,
+			expectedErr: gostorage.ErrInternal,
 		},
 	}
 
@@ -135,7 +135,7 @@ func TestObjectStorage_Exists(t *testing.T) {
 			name:        "should return internal error on unexpected S3 error",
 			mockErr:     errors.New("some AWS error"),
 			expected:    false,
-			expectedErr: gomedia.ErrInternal,
+			expectedErr: gostorage.ErrInternal,
 		},
 	}
 
@@ -186,7 +186,7 @@ func TestObjectStorage_GetSignedURL(t *testing.T) {
 			visibility:  VisibilityPrivate,
 			mockErr:     errors.New("presign failed"),
 			expected:    "",
-			expectedErr: gomedia.ErrInternal,
+			expectedErr: gostorage.ErrInternal,
 		},
 	}
 
@@ -288,14 +288,14 @@ func TestObjectStorage_Put(t *testing.T) {
 			key:         "",
 			visibility:  VisibilityPrivate,
 			expected:    "",
-			expectedErr: gomedia.ErrInvalidKey,
+			expectedErr: gostorage.ErrInvalidKey,
 		},
 		{
 			name:        "should return error when key contains invalid characters",
 			key:         "bad/key.txt",
 			visibility:  VisibilityPrivate,
 			expected:    "",
-			expectedErr: gomedia.ErrInvalidKey,
+			expectedErr: gostorage.ErrInvalidKey,
 		},
 		{
 			name:        "should return internal error when PutObject fails",
@@ -303,7 +303,7 @@ func TestObjectStorage_Put(t *testing.T) {
 			visibility:  VisibilityPrivate,
 			mockPutErr:  errors.New("s3 error"),
 			expected:    "",
-			expectedErr: gomedia.ErrInternal,
+			expectedErr: gostorage.ErrInternal,
 		},
 		{
 			name:        "should return https public URL when bucket is public and SSL enabled",
@@ -333,7 +333,7 @@ func TestObjectStorage_Put(t *testing.T) {
 			visibility:  VisibilityPrivate,
 			mockSignErr: errors.New("presign error"),
 			expected:    "",
-			expectedErr: gomedia.ErrInternal,
+			expectedErr: gostorage.ErrInternal,
 		},
 	}
 

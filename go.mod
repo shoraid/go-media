@@ -1,4 +1,4 @@
-module github.com/shoraid/go-media
+module github.com/shoraid/go-storage
 
 go 1.25.0
 

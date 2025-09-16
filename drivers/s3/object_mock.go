@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-// MockObjectStorage is a mock implementation of the gomedia.StorageDriver interface for S3.
+// MockObjectStorage is a mock implementation of the gostorage.StorageDriver interface for S3.
 type MockObjectStorage struct {
 	MockDelete       func(ctx context.Context, key string) error
 	MockExists       func(ctx context.Context, key string) (bool, error)
